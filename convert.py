@@ -27,8 +27,8 @@ def build_converter(images_scale: float, formulas: bool, gpu: bool) -> DocumentC
 
 
 def slugify(text: str, maxlen: int = 60) -> str:
-    s = re.sub(r"[^\w\s-]", "", text).strip().lower()
-    s = re.sub(r"[\s_-]+", "-", s)
+    s = re.sub(r"[^\w\s.-]", "", text).strip().lower()
+    s = re.sub(r"[\s_.-]+", "-", s)
     return (s[:maxlen].rstrip("-")) or "section"
 
 
