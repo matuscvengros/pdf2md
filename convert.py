@@ -2,6 +2,7 @@ import argparse
 import re
 from pathlib import Path
 
+from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
@@ -13,11 +14,13 @@ from docling_core.types.doc.document import (
 )
 
 
-def build_converter(images_scale: float, formulas: bool) -> DocumentConverter:
+def build_converter(images_scale: float, formulas: bool, gpu: bool) -> DocumentConverter:
     opts = PdfPipelineOptions()
     opts.generate_picture_images = True
     opts.images_scale = images_scale
     opts.do_formula_enrichment = formulas
+    if gpu:
+        opts.accelerator_options = AcceleratorOptions(device=AcceleratorDevice.CUDA)
     return DocumentConverter(
         format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)}
     )
@@ -122,6 +125,7 @@ def main() -> None:
     parser.add_argument("--force", action="store_true", help="Reconvert PDFs even if output exists")
     parser.add_argument("--no-split", action="store_true", help="Skip splitting into per-chapter files")
     parser.add_argument("--split-level", type=int, default=1, help="Heading level to split chapters on (default: 1)")
+    parser.add_argument("--gpu", action="store_true", help="Run model inference on CUDA GPU instead of CPU")
     args = parser.parse_args()
 
     if args.file is not None:
@@ -134,8 +138,8 @@ def main() -> None:
             print(f"No PDFs found in {args.input}/")
             return
 
-    converter = build_converter(images_scale=args.scale, formulas=not args.no_formulas)
-    print(f"Found {len(pdfs)} PDF(s)")
+    converter = build_converter(images_scale=args.scale, formulas=not args.no_formulas, gpu=args.gpu)
+    print(f"Found {len(pdfs)} PDF(s){' (GPU)' if args.gpu else ''}")
     for pdf in pdfs:
         try:
             convert_one(
