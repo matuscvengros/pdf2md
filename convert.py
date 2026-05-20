@@ -1,5 +1,6 @@
 import argparse
 import re
+import traceback
 from pathlib import Path
 
 from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
@@ -151,7 +152,12 @@ def main() -> None:
                 split_level=args.split_level,
             )
         except Exception as e:
+            err_dir = args.output / pdf.stem
+            err_dir.mkdir(parents=True, exist_ok=True)
+            err_log = err_dir / "error.log"
+            err_log.write_text(traceback.format_exc())
             print(f"  failed: {pdf.name}: {e}")
+            print(f"  traceback written to {err_log}")
 
 
 if __name__ == "__main__":
