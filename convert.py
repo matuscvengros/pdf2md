@@ -1,7 +1,34 @@
 import argparse
+import logging
 import re
+import sys
 import traceback
 from pathlib import Path
+
+# Route logs before importing docling so its loggers attach to our handlers.
+LOGS_DIR = Path(__file__).parent / "logs"
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+_ERR_LOG = LOGS_DIR / "err.log"
+_OUT_LOG = LOGS_DIR / "output.log"
+_ERR_LOG.write_text("")
+_OUT_LOG.write_text("")
+
+_fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+_err_handler = logging.FileHandler(_ERR_LOG, mode="a")
+_err_handler.setLevel(logging.ERROR)
+_err_handler.setFormatter(_fmt)
+_out_handler = logging.FileHandler(_OUT_LOG, mode="a")
+_out_handler.setLevel(logging.DEBUG)
+_out_handler.addFilter(lambda r: r.levelno < logging.ERROR)
+_out_handler.setFormatter(_fmt)
+_root = logging.getLogger()
+_root.setLevel(logging.DEBUG)
+_root.addHandler(_err_handler)
+_root.addHandler(_out_handler)
+
+# Anything written to stderr (tqdm bars, transformers warnings, raw prints from
+# C extensions) is noise for the terminal — funnel it into output.log too.
+sys.stderr = open(_OUT_LOG, "a", buffering=1)
 
 from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
 from docling.datamodel.base_models import InputFormat
@@ -15,13 +42,20 @@ from docling_core.types.doc.document import (
 )
 
 
-def build_converter(images_scale: float, formulas: bool, gpu: bool) -> DocumentConverter:
+def build_converter(
+    images_scale: float, formulas: bool, gpu: bool, cpu: bool
+) -> DocumentConverter:
     opts = PdfPipelineOptions()
     opts.generate_picture_images = True
     opts.images_scale = images_scale
     opts.do_formula_enrichment = formulas
+    # Default: leave accelerator_options unset so Docling uses device="auto",
+    # which picks CUDA when a working NVIDIA GPU is present and CPU otherwise.
+    # --gpu forces CUDA; --cpu forces CPU.
     if gpu:
         opts.accelerator_options = AcceleratorOptions(device=AcceleratorDevice.CUDA)
+    elif cpu:
+        opts.accelerator_options = AcceleratorOptions(device=AcceleratorDevice.CPU)
     return DocumentConverter(
         format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)}
     )
@@ -126,7 +160,9 @@ def main() -> None:
     parser.add_argument("--force", action="store_true", help="Reconvert PDFs even if output exists")
     parser.add_argument("--no-split", action="store_true", help="Skip splitting into per-chapter files")
     parser.add_argument("--split-level", type=int, default=1, help="Heading level to split chapters on (default: 1)")
-    parser.add_argument("--gpu", action="store_true", help="Run model inference on CUDA GPU instead of CPU")
+    device = parser.add_mutually_exclusive_group()
+    device.add_argument("--gpu", action="store_true", help="Force CUDA GPU. Default leaves Docling on device='auto', which picks CUDA when a working NVIDIA GPU is present and CPU otherwise.")
+    device.add_argument("--cpu", action="store_true", help="Force CPU, even if a usable GPU is present (use this if 'auto' is picking up a wedged GPU).")
     args = parser.parse_args()
 
     if args.file is not None:
@@ -139,8 +175,14 @@ def main() -> None:
             print(f"No PDFs found in {args.input}/")
             return
 
-    converter = build_converter(images_scale=args.scale, formulas=not args.no_formulas, gpu=args.gpu)
-    print(f"Found {len(pdfs)} PDF(s){' (GPU)' if args.gpu else ''}")
+    converter = build_converter(
+        images_scale=args.scale,
+        formulas=not args.no_formulas,
+        gpu=args.gpu,
+        cpu=args.cpu,
+    )
+    device_tag = " (GPU)" if args.gpu else " (CPU)" if args.cpu else " (auto)"
+    print(f"Found {len(pdfs)} PDF(s){device_tag}")
     for pdf in pdfs:
         try:
             convert_one(
@@ -152,12 +194,10 @@ def main() -> None:
                 split_level=args.split_level,
             )
         except Exception as e:
-            err_dir = args.output / pdf.stem
-            err_dir.mkdir(parents=True, exist_ok=True)
-            err_log = err_dir / "error.log"
-            err_log.write_text(traceback.format_exc())
-            print(f"  failed: {pdf.name}: {e}")
-            print(f"  traceback written to {err_log}")
+            logging.getLogger("pdf2md").error(
+                "failed: %s\n%s", pdf.name, traceback.format_exc()
+            )
+            print(f"  failed: {pdf.name}: {e} (see {_ERR_LOG})")
 
 
 if __name__ == "__main__":

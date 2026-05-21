@@ -77,3 +77,5 @@ ipython_config.py
 # Don't track PDFs dropped into input/
 input/*
 !input/.gitkeep
+output/*
+!output/.gitkeep

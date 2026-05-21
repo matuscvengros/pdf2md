@@ -22,6 +22,8 @@ Single-script tool that converts PDFs to Markdown via Docling. Output: `output/<
 - Batch must not abort on a single bad PDF — per-file `try/except` in `main`.
 - Skip files where `output/<name>/<name>.md` already exists unless `--force`.
 - New behavior knobs go through `argparse`, not module constants.
+- Device selection: `--gpu`/`--cpu` are mutually exclusive and *both* opt-in. With neither, we don't set `accelerator_options` and Docling runs `device="auto"`, which **picks CUDA when a working NVIDIA GPU is present** — i.e. the absence of `--gpu` is not the same as CPU-only. Use `--cpu` to actually pin CPU. Don't change this default to CPU without a reason; auto matches Docling's own behavior.
+- Logs: `convert.py` redirects all Python logging and stderr into `logs/`. Errors (ERROR level + the per-PDF traceback we emit) land in `logs/err.log`; everything else (INFO/WARNING from docling/rapidocr/transformers, tqdm bars, raw stderr writes) lands in `logs/output.log`. Both files are truncated at the start of each run. The terminal only sees `print()` from `convert.py`. Don't add new noisy `print()`s; if you need to log, use `logging`.
 
 ## Non-goals
 
