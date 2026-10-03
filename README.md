@@ -28,7 +28,7 @@ Output contains section Markdown files directly in `output/<pdf-name>/chapters/`
 
 The splitter keeps the original heading-based behavior. Each detected heading at `--split-level` starts a file that runs to the next heading at that level. The default is H1. OCR and heading detection determine these boundaries, so a book's title pages and subsections may also become separate files.
 
-Successful exports record completion in `logs/converted-<hash>.log`. A later run skips that PDF only when the completion record and its chapter files still exist. Use `--force` to regenerate it.
+Successful exports record completion and section page ranges in `logs/converted-<hash>.log`. A later run skips that PDF only when the completion record and its chapter files still exist. Use `--force` to regenerate it. The persistent page ranges can be passed to `math-review/plan.py` if the run's output log has been overwritten.
 
 ### GPU page-range sample
 

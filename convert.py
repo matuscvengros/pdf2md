@@ -186,6 +186,7 @@ def split_into_chapters(
     chapters_dir: Path,
     images_dir: Path,
     split_level: int,
+    page_map: list[str] | None = None,
 ) -> int:
     # These iteration args must match docling's md serializer; otherwise from_element/to_element indices won't align.
     items = list(
@@ -223,9 +224,10 @@ def split_into_chapters(
             encoding="utf-8",
         )
         pages = [prov.page_no for item, _ in items[start:end] for prov in getattr(item, "prov", [])]
-        logging.getLogger("pdf2md").info(
-            "section chapters/%s pages %s-%s", fname, min(pages, default="?"), max(pages, default="?")
-        )
+        page_record = f"section chapters/{fname} pages {min(pages, default='?')}-{max(pages, default='?')}"
+        logging.getLogger("pdf2md").info(page_record)
+        if page_map is not None:
+            page_map.append(page_record)
         print(f"    wrote chapters/{fname}")
 
     for idx, (item, _level) in enumerate(items):
@@ -261,7 +263,10 @@ def convert_one(
     ).hexdigest()[:16]
     completion_log = LOGS_DIR / f"converted-{conversion_id}.log"
     if completion_log.is_file() and not force:
-        outputs = completion_log.read_text(encoding="utf-8").splitlines()
+        outputs = [
+            line for line in completion_log.read_text(encoding="utf-8").splitlines()
+            if line and not line.startswith("#")
+        ]
         if outputs and all((out_dir / path).is_file() for path in outputs):
             print(f"Skipping {pdf.name} (chapters already converted)")
             return
@@ -276,7 +281,8 @@ def convert_one(
     if page_end is not None and page_end > result.input.page_count:
         raise ValueError(f"--page-end {page_end} exceeds the PDF's {result.input.page_count} pages")
     completion_log.unlink(missing_ok=True)
-    n = split_into_chapters(result.document, chapters_dir, images_dir, split_level)
+    page_map: list[str] = []
+    n = split_into_chapters(result.document, chapters_dir, images_dir, split_level, page_map)
 
     # Docling saves picture artifacts before applying element slicing. Keep only
     # images referenced by the exported chapters, including after reconversion.
@@ -305,7 +311,10 @@ def convert_one(
 
     outputs = chapter_paths + sorted(images_dir.glob("image_*.png"))
     completion_log.write_text(
-        "\n".join(path.relative_to(out_dir).as_posix() for path in outputs) + "\n",
+        "\n".join(
+            [path.relative_to(out_dir).as_posix() for path in outputs]
+            + [f"# {record}" for record in page_map]
+        ) + "\n",
         encoding="utf-8",
     )
     print(f"  wrote {n} chapter(s) in {chapters_dir}")

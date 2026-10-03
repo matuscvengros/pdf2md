@@ -23,7 +23,7 @@ Single-script tool that converts PDFs to Markdown via Docling. Output contains h
 - Python 3.10+, `pathlib` everywhere, no `os.path`.
 - Users run `./convert.sh`, not `python convert.py` directly — the wrapper delegates to `uv run`.
 - Batch must not abort on a single bad PDF — per-file `try/except` in `main`.
-- Record successful exports in a persistent `logs/converted-<hash>.log` completion record. Skip only when that record and its chapter files exist, unless `--force`.
+- Record successful exports and section page ranges in a persistent `logs/converted-<hash>.log` completion record. Skip only when that record and its chapter files exist, unless `--force`. Page ranges are comment lines, so older path-only records remain valid for skipping.
 - New behavior knobs go through `argparse`, not module constants.
 - Device selection: `--gpu`/`--cpu` are mutually exclusive and *both* opt-in. With neither, we don't set `accelerator_options` and Docling runs `device="auto"`, which **picks CUDA when a working NVIDIA GPU is present** — i.e. the absence of `--gpu` is not the same as CPU-only. Use `--cpu` to actually pin CPU. Don't change this default to CPU without a reason; auto matches Docling's own behavior.
 - Logs: `convert.py` redirects all Python logging and stderr into `logs/`. Errors (ERROR level + the per-PDF traceback we emit) land in `logs/err.log`; everything else (INFO/WARNING from docling/rapidocr/transformers, tqdm bars, raw stderr writes) lands in `logs/output.log`. Both files are truncated at the start of each run, even for `--help`. Concurrent runs must each pass a distinct `--log-name NAME`, which switches them to `logs/NAME-err.log` and `logs/NAME-output.log`. The output log records each section's page range (`section chapters/<file> pages A-B`). The terminal only sees `print()` from `convert.py`. Don't add new noisy `print()`s; if you need to log, use `logging`.
@@ -65,7 +65,7 @@ The converter can also drop whole blocks of text on some pages, when Docling's r
 
 ### The pattern
 
-1. **Convert** the book with its own log name. The output log records each section's physical page range, which maps every section file back to its pages.
+1. **Convert** the book with its own log name. The output log and persistent completion record retain each section's physical page range, which maps every section file back to its pages.
 2. **Plan.** `math-review/plan.py` renders every page at 150 DPI, snapshots the section files before any edit, and groups consecutive sections into batches of at most 5 pages and 12 files. A single section spanning more than 5 pages stays in one batch. Each file belongs to exactly one batch, so no two agents edit the same file.
 3. **Review.** `math-review/workflow.js` runs three stages per batch, pipelined so batches do not wait for each other:
    - **Fix**: one agent compares every formula on its pages with the Markdown and corrects the Markdown.
@@ -100,6 +100,8 @@ Per book, with `<book>` as the PDF stem and `<name>` as a short log name:
 ./convert.sh input/<book>.pdf --gpu --ocr-language english --log-name <name> > logs/<name>-console.log
 .venv/bin/python math-review/plan.py input/<book>.pdf logs/<name>-output.log --title "<Author>, <Title> (<Year>)"
 ```
+
+If the output log has been overwritten, pass the matching `logs/converted-<hash>.log` to `plan.py` instead. New completion records preserve the source page map; older path-only records require the original output log.
 
 `plan.py` writes `tmp/math-review/<book>/args.json`. In Claude Code, run the review workflow and pass that file's JSON content as the args object, not as a string:
 

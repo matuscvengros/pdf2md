@@ -5,7 +5,8 @@ A-B"), renders every PDF page to a 150 DPI overview PNG, snapshots the section
 files before any edit, groups the sections into page batches and writes the
 Workflow args for math-review/workflow.js.
 
-Usage: .venv/bin/python math-review/plan.py PDF OUTPUT_LOG --title "Author, Title (Year)"
+Usage: .venv/bin/python math-review/plan.py PDF LOG --title "Author, Title (Year)"
+LOG can be the run's output log or its persistent converted-<hash>.log record.
 
 Writes under tmp/: pages/<stem>/p-*.png, math-review/<stem>/original/ (only if
 it does not exist yet) and math-review/<stem>/args.json.
@@ -23,7 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 parser = argparse.ArgumentParser()
 parser.add_argument("pdf", type=Path)
-parser.add_argument("log", type=Path, help="convert.py output log of the run, e.g. logs/NAME-output.log")
+parser.add_argument("log", type=Path, help="convert.py output log or persistent converted-<hash>.log record")
 parser.add_argument("--title", help="Book title used in reviewer prompts (default: PDF stem)")
 parser.add_argument("--max-pages", type=int, default=5, help="Page span per batch (default: 5)")
 parser.add_argument("--max-files", type=int, default=12, help="Section files per batch (default: 12)")
