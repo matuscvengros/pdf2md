@@ -21,6 +21,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from journal import read_stages, valid_result as owned_result
+
 ROOT = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("stem")
@@ -44,70 +46,12 @@ for label, directory in (("export", chapters), ("snapshot", original)):
 if not batches:
     failed.append("the plan contains no batches")
 
-by_batch = collections.defaultdict(dict)
-attempts = []
-for journal in args.journals:
-    labels, results = {}, {}
-    for line_number, line in enumerate(journal.read_text().splitlines(), 1):
-        if not line.strip():
-            continue
-        try:
-            rec = json.loads(line)
-            if rec.get("type") == "started":
-                labels[rec["key"]] = rec["label"]
-            elif rec.get("type") == "result":
-                results[rec["key"]] = rec.get("result")
-        except (ValueError, KeyError, AttributeError) as err:
-            failed.append(f"{journal.name}:{line_number}: malformed journal record: {err}")
-    for key, label in labels.items():
-        if not isinstance(label, str):
-            failed.append(f"{journal.name}: malformed agent label")
-            continue
-        m = re.match(r"(fix|verify|recheck):(b\d+)(?:\s|$)", label)
-        if m:
-            bid, stage = m.group(2), m.group(1)
-            if bid not in batches:
-                failed.append(f"unknown batch in journal: {label}")
-            else:
-                # A new fix invalidates earlier verification; a new verifier's
-                # edits invalidate an earlier recheck, including across reruns.
-                for later in (("verify", "recheck") if stage == "fix" else ("recheck",) if stage == "verify" else ()):
-                    by_batch[bid].pop(later, None)
-                result = results.get(key, "MISSING")
-                by_batch[bid][stage] = result
-                attempts.append((bid, stage, result))
+by_batch, attempts, journal_errors = read_stages(args.journals, batches)
+failed.extend(journal_errors)
 
 
 def valid_result(result, batch):
-    if not isinstance(result, dict):
-        return False
-    if not isinstance(result.get("katex_clean"), bool):
-        return False
-    for count in ("display_equations_checked", "inline_expressions_checked"):
-        if type(result.get(count)) is not int or result[count] < 0:
-            return False
-    owned = {s[0]: (s[1], s[2]) for s in batch["sections"]}
-    for field, required in (("changes", ("file", "page", "kind", "before", "after")), ("unresolved", ("file", "page", "issue"))):
-        if not isinstance(result.get(field), list):
-            return False
-        for item in result[field]:
-            if not isinstance(item, dict) or any(k not in item for k in required):
-                return False
-            if not isinstance(item["file"], str) or type(item["page"]) is not int:
-                return False
-            item_path = Path(item["file"])
-            if len(item_path.parts) > 1:
-                resolved = item_path if item_path.is_absolute() else ROOT / item_path
-                if resolved.resolve().parent != chapters.resolve():
-                    return False
-            bounds = owned.get(item_path.name)
-            if bounds is None or not bounds[0] <= item["page"] <= bounds[1]:
-                return False
-            if any(not isinstance(item[k], str) for k in required if k != "page"):
-                return False
-            if field == "changes" and item["kind"] not in {"display", "inline", "table", "missing-equation", "not-decoded", "equation-number", "revert", "other"}:
-                return False
-    return True
+    return owned_result(result, batch, ROOT, chapters)
 
 kinds = collections.Counter()
 stage_changes = collections.Counter()

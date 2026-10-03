@@ -9,7 +9,8 @@ export const meta = {
 }
 
 // args (written by math-review/plan.py): {root, title, pdf, chapters, pages, pagePad,
-//   batches: [{id, first, last, sections: [[file, firstPage, lastPage], ...]}], only?: [batch ids]}
+//   batches: [{id, first, last, sections: [[file, firstPage, lastPage], ...]}], only?: [batch ids],
+//   resume?: {batchId: {fix?: RESULT, verify?: RESULT, recheck?: RESULT}}}
 const ROOT = args.root
 const TITLE = args.title
 const BATCHES = args.batches.filter(b => !args.only || args.only.includes(b.id)).map(b => ({
@@ -78,7 +79,7 @@ const RULES = `What counts as math, and the target form:
 
 Notation: when you rewrite a formula, write compact standard LaTeX ("0.25", "x^{1/3}", "v_{\\text{max}}" for word subscripts). Do not reformat formulas that are already correct. Transcribe what is printed, even where you think the book is wrong. This is transcription, not a physics review. A literal dollar sign in prose must be written as \\$.
 
-Do not change anything else. Non-math wording, OCR typos in plain prose, headings, image links, footnotes and paragraph order stay as they are. One exception: if OCR dropped a phrase that contains math (for example "proportional to x^1.5"), restore that phrase from the page image and record it as kind "other". If a whole paragraph, equation block or table from the source is missing from your files, restore any equations it contains, and report the missing block in "unresolved" with an issue starting "MISSING BLOCK:" and its first few words. The converter is known to drop whole blocks on some pages. Make edits with the Edit tool, never by rewriting whole files.
+Do not change anything else. Non-math wording, OCR typos in plain prose, headings, image links, footnotes and paragraph order stay as they are. One exception: if OCR dropped a phrase that contains math (for example "proportional to x^1.5"), restore that phrase from the page image and record it as kind "other". Before restoring apparently missing math, search neighbouring section files read-only: reading-order errors can move a block under a later heading. If the math is exported elsewhere, report its location instead of duplicating it or editing another agent's file. If a whole paragraph, equation block or table from the source is genuinely missing, restore any equations it contains, and report the missing block in "unresolved" with an issue starting "MISSING BLOCK:" and its first few words. The converter is known to drop whole blocks on some pages. Make edits with the Edit tool, never by rewriting whole files.
 
 When finished, run: cd ${ROOT} && node math-review/check_math.js <each of your files>
 It parses every $$...$$ and $...$ with KaTeX. Fix every problem it reports in your files and re-run until it is clean.
@@ -115,12 +116,13 @@ ${RULES}`
 
 const results = await pipeline(
   BATCHES,
-  b => agent(fixPrompt(b), { label: `fix:${b.id} p${b.first}-${b.last}`, phase: 'Fix', schema: RESULT }),
+  b => args.resume?.[b.id]?.fix ?? agent(fixPrompt(b), { label: `fix:${b.id} p${b.first}-${b.last}`, phase: 'Fix', schema: RESULT }),
   async (fix, b) => {
-    const verify = await agent(verifyPrompt(b, fix?.changes ?? []), { label: `verify:${b.id} p${b.first}-${b.last}`, phase: 'Verify', schema: RESULT })
+    const prior = args.resume?.[b.id] ?? {}
+    const verify = prior.verify ?? await agent(verifyPrompt(b, fix?.changes ?? []), { label: `verify:${b.id} p${b.first}-${b.last}`, phase: 'Verify', schema: RESULT })
     let recheck = null
     if (verify && verify.changes.length) {
-      recheck = await agent(recheckPrompt(b, verify.changes), { label: `recheck:${b.id} p${b.first}-${b.last}`, phase: 'Verify', schema: RESULT })
+      recheck = prior.recheck ?? await agent(recheckPrompt(b, verify.changes), { label: `recheck:${b.id} p${b.first}-${b.last}`, phase: 'Verify', schema: RESULT })
     }
     log(`${b.id} p${b.first}-${b.last}: fix ${fix ? fix.changes.length : 'FAILED'}, verify ${verify ? verify.changes.length : 'FAILED'}, recheck ${recheck ? recheck.changes.length : '-'}`)
     return { id: b.id, first: b.first, last: b.last, files: b.files, fix, verify, recheck }

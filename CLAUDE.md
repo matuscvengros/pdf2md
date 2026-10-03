@@ -83,6 +83,7 @@ The converter can also drop whole blocks of text on some pages, when Docling's r
 - Tables keep their structure. Only signs, exponents and symbols are corrected.
 - Transcription only. A printed typo or an inconsistent symbol stays as printed.
 - Nothing else changes: prose typos, headings, image links and paragraph order stay as they are. The exception is a dropped phrase that contains math, which is restored. Agents report missing non-math text instead of fixing it.
+- Before restoring missing math, search neighbouring section files read-only. Reading-order errors can place it under a later heading; report that location rather than adding a duplicate or editing another agent's file.
 - Every formula is checked on a 300 DPI zoom (`math-review/crop_page.py`). Subscripts are not legible at 150 DPI.
 - Every edited file must pass `math-review/check_math.js`, which parses each `$$...$$` and `$...$` with KaTeX.
 
@@ -118,6 +119,14 @@ With an authenticated local Claude Code CLI that exposes the Workflow tool, the 
 The runner keeps the CLI's default model and saves its stream and errors in `logs/<name>-math-workflow.jsonl` and `logs/<name>-math-workflow-err.log`. Its CLI exit status does not certify review completion; check the workflow journal with `report.py` below. Use a distinct log name for each parallel run.
 
 To re-run only some batches, for example after an agent failure, add `"only": ["b012", "b047"]` to the args.
+
+To continue an interrupted review without repeating completed stages, pass its journals in chronological order:
+
+```bash
+.venv/bin/python math-review/run.py tmp/math-review/<book>/args.json --log-name <name>-resume --resume-journals <first-journal> <later-journal>
+```
+
+The runner validates the results and reuses only current successful stages. A new fixer invalidates previous verification; a new verifier invalidates its recheck. Use this only while the exported files still correspond to the journals: reconversion or unrecorded edits require a fresh review. Include both the earlier journals and the new journal when reporting the resumed run.
 
 When the workflow finishes, report on it with the run's journal (`journal.jsonl` in the transcript directory the Workflow tool prints):
 
