@@ -28,6 +28,8 @@ parser.add_argument("--title", help="Book title used in reviewer prompts (defaul
 parser.add_argument("--max-pages", type=int, default=5, help="Page span per batch (default: 5)")
 parser.add_argument("--max-files", type=int, default=12, help="Section files per batch (default: 12)")
 args = parser.parse_args()
+if args.max_pages < 1 or args.max_files < 1:
+    parser.error("--max-pages and --max-files must be positive")
 
 pdf = args.pdf.resolve()
 stem = pdf.stem
@@ -54,9 +56,11 @@ pad = len(next(iter(page_files.values())))
 sections = []
 for m in re.finditer(r"section chapters/(\S+\.md) pages (\S+)-(\S+)", args.log.read_text(encoding="utf-8")):
     name, first, last = m.groups()
-    prev_last = sections[-1][2] if sections else 1
-    first = int(first) if first != "?" else prev_last
-    last = int(last) if last != "?" else first
+    if not first.isdigit() or not last.isdigit():
+        raise SystemExit(f"unknown source page range for {name}: {first}-{last}; recover its pages before reviewing")
+    first, last = int(first), int(last)
+    if not 1 <= first <= last <= page_count:
+        raise SystemExit(f"invalid source page range for {name}: {first}-{last}; PDF has {page_count} pages")
     sections.append([name, first, last])
 on_disk = sorted(p.name for p in chapters.glob("*.md"))
 if not on_disk:

@@ -76,7 +76,7 @@ prompt = (
 stream = logs / f"{options.log_name}-workflow.jsonl"
 errors = logs / f"{options.log_name}-workflow-err.log"
 command = [
-    claude, "--print", "--no-session-persistence", "--output-format", "stream-json",
+    claude, "--print", "--output-format", "stream-json",
     "--verbose", "--permission-mode", "acceptEdits", "--allowedTools", "Workflow,Read,Bash,Edit",
 ]
 print(f"Running {options.kind}; stream {stream.relative_to(ROOT)}", flush=True)

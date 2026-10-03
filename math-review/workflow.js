@@ -21,7 +21,9 @@ const BATCHES = args.batches.filter(b => !args.only || args.only.includes(b.id))
   sections: b.sections.map(s => `${s[0]} (pages ${s[1]}-${s[2]})`),
   page_images: Array.from({ length: b.last - b.first + 1 }, (_, i) => b.first + i)
     .map(n => `page ${n}: ${args.pages}/p-${String(n).padStart(args.pagePad, '0')}.png`),
+  uncertain: (args.uncertain_sections ?? []).filter(u => b.sections.some(s => s[0] === u.file)),
 }))
+const SOURCE_MAP = args.source_map ?? 'the converter log'
 
 const CHANGE = {
   type: 'object',
@@ -61,6 +63,8 @@ Source: physical pages ${b.first}-${b.last} of ${b.pdf}
 Overview renders at 150 DPI (open with Read):
 ${b.page_images.map(p => `- ${p}`).join('\n')}
 Pages at the start or end of this range may be shared with neighbouring sections. Only the content that appears in your files is your responsibility.
+
+Page ranges come from ${SOURCE_MAP}. Match each file's headings and prose against these pages before editing. If content extends outside its range, inspect neighbouring pages with crop_page.py and report any unlocated content in "unresolved" with "SOURCE RANGE:" and the missing pages; leave unchecked math unchanged. Check empty or heading-only files for omitted equations.${b.uncertain.length ? `\nUncertain source ranges:\n${b.uncertain.map(u => `- ${u.file}: pages ${u.first}-${u.last} (anchor scores ${u.first_score}/${u.last_score}); ${u.notes.join('; ')}`).join('\n')}` : ''}
 
 Zooming: 150 DPI is not enough to read subscripts and exponents. Zoom into every region that contains math:
   cd ${ROOT} && .venv/bin/python math-review/crop_page.py "${b.pdf}" PAGE X0 Y0 X1 Y1 --dpi 300
