@@ -2,6 +2,8 @@
 
 Single-script tool that converts PDFs to Markdown via Docling. Output contains heading-based section files directly in `output/<name>/chapters/` and referenced images in `output/<name>/images/`. Keep the original sequential prefix and heading-slug filenames, such as `01-introduction.md`. Do not produce combined book Markdown or create nested chapter directories.
 
+**Before starting any conversion, first read the [Math section](#math) and the instructions and relevant scripts in [math-review/](math-review/), unless their current versions have already been read for this task.** Follow the math-review workflow whenever the source contains math.
+
 ## Layout
 
 - `convert.sh` — thin entry point that `exec`s `uv run convert.py "$@"`. `uv` handles venv + dependency sync.
