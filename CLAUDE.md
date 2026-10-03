@@ -66,7 +66,7 @@ The converter can also drop whole blocks of text on some pages, when Docling's r
 ### The pattern
 
 1. **Convert** the book with its own log name. The output log records each section's physical page range, which maps every section file back to its pages.
-2. **Plan.** `math-review/plan.py` renders every page at 150 DPI, snapshots the section files before any edit, and groups consecutive sections into batches of at most 5 pages and 12 files. Each file belongs to exactly one batch, so no two agents edit the same file.
+2. **Plan.** `math-review/plan.py` renders every page at 150 DPI, snapshots the section files before any edit, and groups consecutive sections into batches of at most 5 pages and 12 files. A single section spanning more than 5 pages stays in one batch. Each file belongs to exactly one batch, so no two agents edit the same file.
 3. **Review.** `math-review/workflow.js` runs three stages per batch, pipelined so batches do not wait for each other:
    - **Fix**: one agent compares every formula on its pages with the Markdown and corrects the Markdown.
    - **Verify**: a fresh agent is told the fixer missed errors and introduced some. It re-checks everything, gets the fixer's change list as hints only, and fixes what remains.

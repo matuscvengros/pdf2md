@@ -45,6 +45,7 @@ if not batches:
     failed.append("the plan contains no batches")
 
 by_batch = collections.defaultdict(dict)
+attempts = []
 for journal in args.journals:
     labels, results = {}, {}
     for line_number, line in enumerate(journal.read_text().splitlines(), 1):
@@ -72,7 +73,9 @@ for journal in args.journals:
                 # edits invalidate an earlier recheck, including across reruns.
                 for later in (("verify", "recheck") if stage == "fix" else ("recheck",) if stage == "verify" else ()):
                     by_batch[bid].pop(later, None)
-                by_batch[bid][stage] = results.get(key, "MISSING")
+                result = results.get(key, "MISSING")
+                by_batch[bid][stage] = result
+                attempts.append((bid, stage, result))
 
 
 def valid_result(result, batch):
@@ -109,6 +112,12 @@ def valid_result(result, batch):
 kinds = collections.Counter()
 stage_changes = collections.Counter()
 unresolved, rows, all_changes = [], [], []
+for bid, stage, result in attempts:
+    if valid_result(result, batches[bid]):
+        stage_changes[stage] += len(result["changes"])
+        for change in result["changes"]:
+            kinds[change["kind"]] += 1
+            all_changes.append({"batch": bid, "stage": stage, **change})
 for bid in sorted(batches):
     b, stages = batches[bid], by_batch.get(bid, {})
     row = [bid, f"{b['first']}-{b['last']}", str(len(b["sections"]))]
@@ -124,10 +133,6 @@ for bid in sorted(batches):
             row.append("FAILED")
             continue
         row.append(str(len(r["changes"])))
-        stage_changes[stage] += len(r["changes"])
-        for c in r["changes"]:
-            kinds[c["kind"]] += 1
-            all_changes.append({"batch": bid, "stage": stage, **c})
         for u in r["unresolved"]:
             unresolved.append(f"- {bid} {stage}, {u['file']} p{u['page']}: {u['issue']}")
         if not r["katex_clean"]:
@@ -166,7 +171,7 @@ report = [
     f"Inline formulas: {sum(i for _, i in before)} before, {sum(i for _, i in after)} after.",
     f"KaTeX before: {(katex_before.stdout.strip().splitlines() or [katex_before.stderr.strip() or 'no output'])[-1]}. "
     f"KaTeX after: {(katex.stdout.strip().splitlines() or [katex.stderr.strip() or 'no output'])[-1]}.",
-    f"Reported changes: fix {stage_changes['fix']}, verify {stage_changes['verify']}, recheck {stage_changes['recheck']}.",
+    f"Reported changes across all attempts: fix {stage_changes['fix']}, verify {stage_changes['verify']}, recheck {stage_changes['recheck']}.",
     "Changes by kind: " + ", ".join(f"{k} {n}" for k, n in kinds.most_common()) + ".",
     "",
     f"Full diff: logs/{stem}-math-review.diff. Change list: logs/{stem}-math-review-changes.json. "
@@ -183,7 +188,7 @@ report = [
     (katex.stdout + katex.stderr).strip(),
     "```",
     "",
-    "## Per batch (changes reported per stage)",
+    "## Per batch (changes reported by the latest stage attempts)",
     "",
     "| Batch | Pages | Files | Fix | Verify | Recheck |",
     "|---|---|---:|---:|---:|---:|",
