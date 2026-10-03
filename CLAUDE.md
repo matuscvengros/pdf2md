@@ -47,6 +47,8 @@ Single-script tool that converts PDFs to Markdown via Docling. Output contains h
 
 **Important: Math review is required whenever the source contains math.** After converting, check every section containing display equations, inline expressions, mathematical table cells, or captions against the source PDF. Run independent page batches in parallel. Each batch must have a fixer, a fresh adversarial verifier instructed to expect missed or introduced errors, and a third reviewer for verifier edits. KaTeX syntax checks alone do not establish transcription accuracy. Report incomplete coverage and unreadable source expressions explicitly.
 
+Use the current Codex agent and independent Codex agents for math review. **Do not start Claude CLI, Claude workflows, or use a Claude account.** The Claude-specific commands below are legacy documentation, not authorization to execute them.
+
 `convert.py` produces readable section files, but its math is unreliable. This document describes how to check and correct every formula of a converted book against the PDF pages, using the scripts in `math-review/` and Claude Code workflows. The process works for any book; nothing in it depends on a particular title.
 
 ### Why the math needs a review

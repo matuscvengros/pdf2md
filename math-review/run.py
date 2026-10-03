@@ -95,12 +95,14 @@ if options.resume_journals:
             if not valid_result(result, batch, ROOT, chapters) or not result["katex_clean"]:
                 break
             current[stage] = result
-        resumed[bid] = current
         verify = current.get("verify")
         complete = verify is not None and (not verify["changes"] or "recheck" in current)
         if not complete and (selected is None or bid in selected):
             pending.append(bid)
+            resumed[bid] = current
+    # Completed results stay in the journals; the CLI only needs pending work.
     arguments["resume"] = resumed
+    arguments["batches"] = [batches[bid] for bid in pending]
     arguments["only"] = pending
     if not pending:
         print("All selected review stages are already recorded; run report.py with all journals.")
