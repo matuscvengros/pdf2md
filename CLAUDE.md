@@ -115,6 +115,8 @@ When the workflow finishes, report on it with the run's journal (`journal.jsonl`
 .venv/bin/python math-review/report.py <book> <transcript-dir>/journal.jsonl
 ```
 
+For a pilot followed by a full run or retries, pass all journal paths in chronological order. A later fixer invalidates earlier verification for that batch, and a later verifier invalidates its earlier recheck. The report exits with status 1 if any required stage is missing, malformed, or fails its KaTeX check, or if the planned files differ from the export or snapshot. An incomplete run must not be reported as a finished review.
+
 This writes `logs/<book>-math-review.md`, `logs/<book>-math-review.diff` and `logs/<book>-math-review-changes.json`. Then audit a random sample, one mixed and one display-only:
 
 ```bash
@@ -123,6 +125,8 @@ This writes `logs/<book>-math-review.md`, `logs/<book>-math-review.diff` and `lo
 ```
 
 Run `math-review/audit.js` with each JSON file (or with their `groups` lists merged into one args object). Its final log line gives the verdict counts. Any formula judged `wrong` comes with the expected LaTeX. Fix those by hand, then re-run the report.
+
+The audit requires exactly one verdict per sampled formula. Missing or duplicate verdicts fail the audit. Formulas marked `unclear` or `not-found` remain unresolved and cannot be counted as correct.
 
 #### Pilot first
 
