@@ -44,16 +44,63 @@ _root.addHandler(_out_handler)
 # C extensions) is noise for the terminal — funnel it into output.log too.
 sys.stderr = open(_OUT_LOG, "a", buffering=1)
 
+from docling.backend.docling_parse_backend import (
+    DoclingParseDocumentBackend,
+    DoclingParsePageBackend,
+)
 from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
 from docling.datamodel.base_models import ConversionStatus, InputFormat
 from docling.datamodel.pipeline_options import PdfPipelineOptions, RapidOcrOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
-from docling_core.types.doc import ImageRefMode
+from docling.utils.locks import pypdfium2_lock
+from docling_core.types.doc import BoundingBox, CoordOrigin, ImageRefMode
 from docling_core.types.doc.document import (
     ContentLayer,
     DoclingDocument,
     SectionHeaderItem,
 )
+from PIL import Image
+
+
+class SafeCropPageBackend(DoclingParsePageBackend):
+    def get_page_image(self, scale: float = 1, cropbox: BoundingBox | None = None) -> Image.Image:
+        try:
+            return super().get_page_image(scale=scale, cropbox=cropbox)
+        except ValueError:
+            if cropbox is None:
+                raise
+        # pypdfium2 rejects a crop that leaves less than one pixel. A degenerate
+        # element box asks for one, and the error would fail the whole PDF, so
+        # render the box clamped into the page instead.
+        size = self.get_size()
+        box = cropbox.to_top_left_origin(size.height)
+        left = min(max(box.l, 0.0), size.width - 1)
+        top = min(max(box.t, 0.0), size.height - 1)
+        safe = BoundingBox(
+            l=left,
+            t=top,
+            r=min(max(box.r, left + 1), size.width),
+            b=min(max(box.b, top + 1), size.height),
+            coord_origin=CoordOrigin.TOPLEFT,
+        )
+        logging.getLogger("pdf2md").warning(
+            "page %d: crop %s does not fit the page, rendering %s instead", self._page_no + 1, box, safe
+        )
+        return super().get_page_image(scale=scale, cropbox=safe)
+
+
+class SafeCropDocumentBackend(DoclingParseDocumentBackend):
+    # Same as DoclingParseDocumentBackend.load_page, but returns SafeCropPageBackend.
+    def load_page(self, page_no: int, create_words: bool = True, create_textlines: bool = True) -> SafeCropPageBackend:
+        with pypdfium2_lock:
+            ppage = self._pdoc[page_no]
+        return SafeCropPageBackend(
+            dp_doc=self.dp_doc,
+            page_obj=ppage,
+            page_no=page_no,
+            create_words=create_words,
+            create_textlines=create_textlines,
+        )
 
 
 def build_converter(
@@ -97,7 +144,7 @@ def build_converter(
             },
         )
     return DocumentConverter(
-        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)}
+        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts, backend=SafeCropDocumentBackend)}
     )
 
 

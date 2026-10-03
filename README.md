@@ -85,6 +85,6 @@ With neither `--gpu` nor `--cpu`, Docling uses `device="auto"` and chooses CUDA 
 
 ### Logs
 
-Errors and tracebacks go to `logs/err.log`; everything else (info/warning chatter from docling, rapidocr, transformers, tqdm) goes to `logs/output.log`. Both files are truncated at the start of each run. With `--log-name NAME` they are `logs/NAME-err.log` and `logs/NAME-output.log`. The output log records each section's physical page range in lines such as `section chapters/12-introduction.md pages 29-31`. Completion records in `logs/converted-<hash>.log` persist between runs. The terminal only shows high-level status (`Converting ...`, `wrote ...`, `failed: ...`).
+Errors and tracebacks go to `logs/err.log`; everything else (info/warning chatter from docling, rapidocr, transformers, tqdm) goes to `logs/output.log`. Both files are truncated at the start of each run. With `--log-name NAME` they are `logs/NAME-err.log` and `logs/NAME-output.log`. The output log records each section's physical page range in lines such as `section chapters/12-introduction.md pages 29-31`. If a degenerate element box would make a page crop smaller than one pixel, the converter renders the box clamped into the page instead of failing the PDF and logs a `page N: crop ... does not fit the page` warning. Completion records in `logs/converted-<hash>.log` persist between runs. The terminal only shows high-level status (`Converting ...`, `wrote ...`, `failed: ...`).
 
 Batch conversion continues after a failed PDF and exits with a nonzero status if any conversion failed.
