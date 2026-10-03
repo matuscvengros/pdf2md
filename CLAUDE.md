@@ -7,7 +7,7 @@ Single-script tool that converts PDFs to Markdown via Docling. Output contains h
 - `convert.sh` — thin entry point that `exec`s `uv run convert.py "$@"`. `uv` handles venv + dependency sync.
 - `convert.py` — the tool itself. `build_converter` / `convert_one` / `split_into_chapters` / `main`.
 - `input/`, `output/` — tracked dirs with `.gitkeep`.
-- `math-review/` and the Math section of `AGENTS.md` — tooling and instructions for checking a converted book's math against the PDF with Claude Code workflows. After converting a book, review its math as the Math section below describes. Keep these files book-agnostic: the repository is public, so no titles, file stems or local paths.
+- `math-review/` and the Math section of `AGENTS.md` — tooling and instructions for checking a converted book's math against the PDF with independent agents. After converting a book, review its math as the Math section below describes. Keep these files book-agnostic: the repository is public, so no titles, file stems or local paths.
 - `pyproject.toml` — pins `docling>=2.0,<3` (docling APIs evolve; a major bump can break us).
 
 ## CLI shape
@@ -49,7 +49,7 @@ Single-script tool that converts PDFs to Markdown via Docling. Output contains h
 
 Use the current Codex agent and independent Codex agents for math review. **Do not start Claude CLI, Claude workflows, or use a Claude account.** The Claude-specific commands below are legacy documentation, not authorization to execute them.
 
-`convert.py` produces readable section files, but its math is unreliable. This document describes how to check and correct every formula of a converted book against the PDF pages, using the scripts in `math-review/` and Claude Code workflows. The process works for any book; nothing in it depends on a particular title.
+`convert.py` produces readable section files, but its math is unreliable. This document describes how to check and correct every formula of a converted book against the PDF pages, using the scripts in `math-review/` and independent agents. The process works for any book; nothing in it depends on a particular title.
 
 ### Why the math needs a review
 
@@ -82,7 +82,7 @@ The converter can also drop whole blocks of text on some pages, when Docling's r
 - Display equations must match the print exactly: symbols, subscripts, superscripts, primes, accents, signs, digits, fractions and brackets. Printed equation numbers become `\tag{n}`. Agents add no tag where no number is printed, even if the text cites one.
 - Equations that are missing, `<!-- formula-not-decoded -->` or garbled become `$$...$$` blocks in the right place.
 - Inline math in prose, captions and table cells becomes `$...$`. Undecorated single-letter variables may stay plain text.
-- Tables keep their structure. Only signs, exponents and symbols are corrected.
+- Preserve table structure when rows and columns are correctly associated. If the exporter merged rows or lost a column, reconstruct only the damaged table block from the PDF so every value has its printed row and column. Preserve headings and surrounding text, and independently compare every reconstructed cell, including numeric digits, signs, units and exponents.
 - Transcription only. A printed typo or an inconsistent symbol stays as printed.
 - Nothing else changes: prose typos, headings, image links and paragraph order stay as they are. The exception is a dropped phrase that contains math, which is restored. Agents report missing non-math text instead of fixing it.
 - Use surrounding context or token boundaries for replacements. Inspect the diff for math inserted inside ordinary words or proper names, and restore any accidental prose edits before finishing. Verifiers also check the surrounding prose of each correction.
