@@ -23,11 +23,32 @@ for (const file of process.argv.slice(2)) {
   // Display math first, then blank it out so its dollars are not read as inline delimiters.
   const masked = src.replace(/\$\$([\s\S]+?)\$\$/g, (match, tex, offset) => {
     check(tex, offset, true);
-    return " ".repeat(match.length);
+    return match.replace(/[^\n]/g, " ");
   });
-  for (const m of masked.matchAll(/(?<![\\$])\$(?!\$)([^$\n]+?)(?<!\\)\$/g)) {
-    check(m[1], m.index, false);
+  let opening = null;
+  const unmatched = (offset) => {
+    failures += 1;
+    console.log(`${file}:${lineAt(offset)}: unbalanced $ delimiter`);
+  };
+  for (const m of masked.matchAll(/\$/g)) {
+    const offset = m.index;
+    // Unmatched display delimiters are reported separately below.
+    if (masked[offset - 1] === "$" || masked[offset + 1] === "$") continue;
+    let slashes = 0;
+    for (let i = offset - 1; i >= 0 && masked[i] === "\\"; i--) slashes += 1;
+    if (slashes % 2) continue; // Escaped literal currency or a dollar inside math.
+    if (opening !== null && masked.slice(opening, offset).includes("\n")) {
+      unmatched(opening);
+      opening = null;
+    }
+    if (opening === null) {
+      opening = offset;
+    } else {
+      check(masked.slice(opening + 1, offset), opening, false);
+      opening = null;
+    }
   }
+  if (opening !== null) unmatched(opening);
   if (/\$\$/.test(masked)) {
     failures += 1;
     console.log(`${file}: unbalanced $$ delimiter`);

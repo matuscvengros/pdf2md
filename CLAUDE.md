@@ -107,6 +107,14 @@ Per book, with `<book>` as the PDF stem and `<name>` as a short log name:
 Workflow({scriptPath: "math-review/workflow.js", args: <contents of tmp/math-review/<book>/args.json>})
 ```
 
+With an authenticated local Claude Code CLI that exposes the Workflow tool, the same workflow can be started from a terminal:
+
+```bash
+.venv/bin/python math-review/run.py tmp/math-review/<book>/args.json --log-name <name>-math
+```
+
+The runner keeps the CLI's default model and saves its stream and errors in `logs/<name>-math-workflow.jsonl` and `logs/<name>-math-workflow-err.log`. Its CLI exit status does not certify review completion; check the workflow journal with `report.py` below. Use a distinct log name for each parallel run.
+
 To re-run only some batches, for example after an agent failure, add `"only": ["b012", "b047"]` to the args.
 
 When the workflow finishes, report on it with the run's journal (`journal.jsonl` in the transcript directory the Workflow tool prints):
@@ -125,6 +133,8 @@ This writes `logs/<book>-math-review.md`, `logs/<book>-math-review.diff` and `lo
 ```
 
 Run `math-review/audit.js` with each JSON file (or with their `groups` lists merged into one args object). Its final log line gives the verdict counts. Any formula judged `wrong` comes with the expected LaTeX. Fix those by hand, then re-run the report.
+
+The terminal runner also supports audit args: `.venv/bin/python math-review/run.py tmp/math-review/<book>/audit-args.json --kind audit --log-name <name>-audit`.
 
 The audit requires exactly one verdict per sampled formula. Missing or duplicate verdicts fail the audit. Formulas marked `unclear` or `not-found` remain unresolved and cannot be counted as correct.
 
@@ -147,7 +157,7 @@ The agents reported 3,458 changes: 3,314 by fixers, 144 by verifiers and none by
 
 The review used 271 agents (113 fix, 113 verify, 45 recheck) and took 48 minutes of wall-clock time at 16 concurrent agents. The agents used about 18.5 million tokens and 12,800 tool calls.
 
-The audit sampled 245 formulas from 24 files across the book: 163 inline and 82 display. All 245 were judged correct, including three that looked wrong but match the print. With zero errors in $n$ samples, the 95% upper bound on the error rate is about $3/n$ (the rule of three, where $n$ is the number of audited formulas). That is about 1.2% for all formulas ($n = 245$) and 3.7% for display equations ($n = 82$). The audit took 24 agents, 2.3 minutes and about 0.9 million tokens.
+The audit sampled 245 formulas from 24 files across the book: 163 inline and 82 display. All 245 were judged correct, including three that looked wrong but match the print. For independent random formula samples, zero errors gives a rough 95% upper bound of $3/n$: about 1.2% for 245 formulas and 3.7% for 82 display equations. This audit samples clusters within weighted section files, so those figures are benchmarks, not valid confidence bounds for its residual error rate. It also cannot detect equations omitted from the Markdown. The full visual review must check those. The audit took 24 agents, 2.3 minutes and about 0.9 million tokens.
 
 ### Limits and maintenance
 

@@ -92,7 +92,12 @@ def valid_result(result, batch):
                 return False
             if not isinstance(item["file"], str) or type(item["page"]) is not int:
                 return False
-            bounds = owned.get(Path(item["file"]).name)
+            item_path = Path(item["file"])
+            if len(item_path.parts) > 1:
+                resolved = item_path if item_path.is_absolute() else ROOT / item_path
+                if resolved.resolve().parent != chapters.resolve():
+                    return False
+            bounds = owned.get(item_path.name)
             if bounds is None or not bounds[0] <= item["page"] <= bounds[1]:
                 return False
             if any(not isinstance(item[k], str) for k in required if k != "page"):
