@@ -1,7 +1,7 @@
 export const meta = {
   name: 'math-review',
   description: 'Check and correct math in converted Markdown sections against the scanned PDF pages',
-  whenToUse: 'After convert.py exports a book. Pass the JSON written by math-review/plan.py as args (see MATH.md).',
+  whenToUse: 'After convert.py exports a book. Pass the JSON written by math-review/plan.py as args (see AGENTS.md#math).',
   phases: [
     { title: 'Fix', detail: 'one agent per page batch corrects every formula and inline expression in its section files' },
     { title: 'Verify', detail: 'fresh agent re-checks everything adversarially; a targeted re-check follows if it changed anything' },
