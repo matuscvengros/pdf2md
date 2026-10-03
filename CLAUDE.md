@@ -49,6 +49,8 @@ Single-script tool that converts PDFs to Markdown via Docling. Output contains h
 
 Use the current Codex agent and independent Codex agents for math review. **Do not start Claude CLI, Claude workflows, or use a Claude account.** The Claude-specific commands below are legacy documentation, not authorization to execute them.
 
+For a native-agent audit, save a flat JSON list of verdicts with `file`, `line`, `kind`, `tex`, `page` and `verdict` for each sample. Use `correct`, `wrong`, `unclear` or `not-found`; a `wrong` verdict also needs `expected` LaTeX. Validate each sample's complete results with `.venv/bin/python math-review/check_audit.py <sample.json> <results.json> [...]`. It checks one verdict per sample, page bounds and whether the sampled formula still exists at that line in the current Markdown. It exits nonzero for incomplete coverage, stale samples or any unresolved verdict; this does not replace visual comparison with the PDF.
+
 `convert.py` produces readable section files, but its math is unreliable. This document describes how to check and correct every formula of a converted book against the PDF pages, using the scripts in `math-review/` and independent agents. The process works for any book; nothing in it depends on a particular title.
 
 ### Why the math needs a review
