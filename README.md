@@ -61,9 +61,23 @@ file             Single PDF to convert. If omitted, processes every PDF in --inp
 --page-start N    First physical PDF page, 1-based inclusive (default: 1)
 --page-end N      Last physical PDF page, 1-based inclusive (default: final page)
 --ocr-language L  Select english or chinese RapidOCR models
+--log-name NAME   Write logs/NAME-err.log and logs/NAME-output.log instead of the shared logs
 --gpu             Force CUDA GPU
 --cpu             Force CPU
 ```
+
+### Running several books at once
+
+Run one instance per PDF, each with its own `--log-name`:
+
+```bash
+./convert.sh input/a.pdf --gpu --ocr-language english --log-name a > logs/a-console.log &
+./convert.sh input/b.pdf --gpu --ocr-language english --log-name b > logs/b-console.log &
+```
+
+Without `--log-name`, every run truncates and writes the shared `logs/err.log` and `logs/output.log`, so a second run (even `--help`) wipes the first run's logs. Do not run two instances in batch mode over the same input directory; they would convert the same PDFs.
+
+Each instance loads its own models and keeps its GPU memory until the process exits. On a 12 GB RTX 5070, scanned books of 450 to 760 pages peaked at 4 to 5 GB of GPU memory per instance. The GPU phase runs near 100% utilization, so two overlapping GPU phases share the GPU rather than finishing sooner. The same books peaked at about 15 GB of process memory, while a 600-page PDF with a text layer reached 28 GB, so page count alone does not predict memory. Check `free -m` before starting another instance.
 
 ### Device selection
 
@@ -71,6 +85,6 @@ With neither `--gpu` nor `--cpu`, Docling uses `device="auto"` and chooses CUDA 
 
 ### Logs
 
-Errors and tracebacks go to `logs/err.log`; everything else (info/warning chatter from docling, rapidocr, transformers, tqdm) goes to `logs/output.log`. Both files are truncated at the start of each run. Completion records in `logs/converted-<hash>.log` persist between runs. The terminal only shows high-level status (`Converting ...`, `wrote ...`, `failed: ...`).
+Errors and tracebacks go to `logs/err.log`; everything else (info/warning chatter from docling, rapidocr, transformers, tqdm) goes to `logs/output.log`. Both files are truncated at the start of each run. With `--log-name NAME` they are `logs/NAME-err.log` and `logs/NAME-output.log`. The output log records each section's physical page range in lines such as `section chapters/12-introduction.md pages 29-31`. Completion records in `logs/converted-<hash>.log` persist between runs. The terminal only shows high-level status (`Converting ...`, `wrote ...`, `failed: ...`).
 
 Batch conversion continues after a failed PDF and exits with a nonzero status if any conversion failed.

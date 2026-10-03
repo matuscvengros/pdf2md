@@ -7,11 +7,23 @@ import sys
 import traceback
 from pathlib import Path
 
+
+def _log_name(value: str) -> str:
+    if not re.fullmatch(r"[\w.-]+", value):
+        raise argparse.ArgumentTypeError("must contain only letters, digits, '.', '_' or '-'")
+    return value
+
+
+# Parsed before the full CLI so concurrent runs can write separate logs.
+_LOG_ARGS = argparse.ArgumentParser(add_help=False)
+_LOG_ARGS.add_argument("--log-name", type=_log_name, help="Write logs/<NAME>-err.log and logs/<NAME>-output.log instead of the shared logs/err.log and logs/output.log. Use a distinct name for each concurrent run.")
+_LOG_NAME = _LOG_ARGS.parse_known_args()[0].log_name
+
 # Route logs before importing docling so its loggers attach to our handlers.
 LOGS_DIR = Path(__file__).parent / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
-_ERR_LOG = LOGS_DIR / "err.log"
-_OUT_LOG = LOGS_DIR / "output.log"
+_ERR_LOG = LOGS_DIR / (f"{_LOG_NAME}-err.log" if _LOG_NAME else "err.log")
+_OUT_LOG = LOGS_DIR / (f"{_LOG_NAME}-output.log" if _LOG_NAME else "output.log")
 _ERR_LOG.write_text("")
 _OUT_LOG.write_text("")
 
@@ -117,17 +129,28 @@ def split_into_chapters(
 
     written = 0
     current: tuple[int, str] | None = None
+    # save_as_markdown deep-copies the document and re-saves every picture on each
+    # call, so one call per section costs sections x pictures. Do its picture step
+    # once, then serialize each section from that copy exactly as it would.
+    ref_doc: DoclingDocument | None = None
 
     def flush(start: int, end: int, text: str) -> None:
-        nonlocal written
+        nonlocal written, ref_doc
+        if ref_doc is None:
+            ref_doc = doc._with_pictures_refs(image_dir=images_dir, page_no=None, reference_path=chapters_dir)
         written += 1
         fname = f"{written:02d}-{slugify(text)}.md"
-        doc.save_as_markdown(
-            chapters_dir / fname,
-            artifacts_dir=Path("..") / images_dir.name,
-            image_mode=ImageRefMode.REFERENCED,
-            from_element=start,
-            to_element=end,
+        (chapters_dir / fname).write_text(
+            ref_doc.export_to_markdown(
+                from_element=start,
+                to_element=end,
+                image_mode=ImageRefMode.REFERENCED,
+            ),
+            encoding="utf-8",
+        )
+        pages = [prov.page_no for item, _ in items[start:end] for prov in getattr(item, "prov", [])]
+        logging.getLogger("pdf2md").info(
+            "section chapters/%s pages %s-%s", fname, min(pages, default="?"), max(pages, default="?")
         )
         print(f"    wrote chapters/{fname}")
 
@@ -215,7 +238,7 @@ def convert_one(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Convert PDFs to heading-based Markdown sections using Docling.")
+    parser = argparse.ArgumentParser(description="Convert PDFs to heading-based Markdown sections using Docling.", parents=[_LOG_ARGS])
     parser.add_argument("file", nargs="?", type=Path, help="Single PDF to convert. If omitted, processes every PDF in --input.")
     parser.add_argument("--input", type=Path, default=Path("input"), help="Input directory (default: input)")
     parser.add_argument("--output", type=Path, default=Path("output"), help="Output directory (default: output)")
