@@ -7,6 +7,7 @@ Single-script tool that converts PDFs to Markdown via Docling. Output contains h
 - `convert.sh` — thin entry point that `exec`s `uv run convert.py "$@"`. `uv` handles venv + dependency sync.
 - `convert.py` — the tool itself. `build_converter` / `convert_one` / `split_into_chapters` / `main`.
 - `input/`, `output/` — tracked dirs with `.gitkeep`.
+- `math-review/` and `MATH.md` — tooling and instructions for checking a converted book's math against the PDF with Claude Code workflows. After converting a book, review its math as `MATH.md` describes. Keep these files book-agnostic: the repository is public, so no titles, file stems or local paths.
 - `pyproject.toml` — pins `docling>=2.0,<3` (docling APIs evolve; a major bump can break us).
 
 ## CLI shape

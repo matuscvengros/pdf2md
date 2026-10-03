@@ -83,3 +83,6 @@ input/*
 !input/.gitkeep
 output/*
 !output/.gitkeep
+
+# math-review tooling
+math-review/node_modules/

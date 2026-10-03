@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "KaTeX for math-review/check_math.js",
+  "dependencies": {
+    "katex": "0.16.47"
+  }
+}
