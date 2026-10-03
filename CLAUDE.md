@@ -71,12 +71,12 @@ The converter can also drop whole blocks of text on some pages, when Docling's r
 
 1. **Convert** the book with its own log name. The output log and persistent completion record retain each section's physical page range, which maps every section file back to its pages.
 2. **Plan.** `math-review/plan.py` renders every page at 150 DPI, snapshots the section files before any edit, and groups consecutive sections into batches of at most 5 pages and 12 files. A single section spanning more than 5 pages stays in one batch. Each file belongs to exactly one batch, so no two agents edit the same file.
-3. **Review.** `math-review/workflow.js` runs three stages per batch, pipelined so batches do not wait for each other:
+3. **Review.** Assign disjoint batches to independent agents and pipeline these stages so batches do not wait for each other:
    - **Fix**: one agent compares every formula on its pages with the Markdown and corrects the Markdown.
    - **Verify**: a fresh agent is told the fixer missed errors and introduced some. It re-checks everything, gets the fixer's change list as hints only, and fixes what remains.
    - **Recheck**: only if the verifier changed something, a third agent checks exactly those changes.
 4. **Report.** `math-review/report.py` writes a summary, the full diff against the snapshot and a JSON list of every change.
-5. **Audit.** `math-review/audit_sample.py` draws a random sample of formulas from the final Markdown. `math-review/audit.js` has read-only agents judge each one against the page. Because the sample is not limited to changed formulas, it measures the residual error rate.
+5. **Audit.** `math-review/audit_sample.py` draws a random sample of formulas from the final Markdown. Have independent read-only agents judge each one against the page, then validate their verdicts with `check_audit.py`. Because the sample is not limited to changed formulas, it checks residual transcription errors.
 6. **Fix audit findings**, then re-run the report.
 
 #### Rules the reviewers follow
@@ -109,7 +109,24 @@ Per book, with `<book>` as the PDF stem and `<name>` as a short log name:
 
 If the output log has been overwritten, pass the matching `logs/converted-<hash>.log` to `plan.py` instead. New completion records preserve the source page map; older path-only records require the original output log.
 
-`plan.py` writes `tmp/math-review/<book>/args.json`. In Claude Code, run the review workflow and pass that file's JSON content as the args object, not as a string:
+#### Native agent reviews
+
+`plan.py` writes `tmp/math-review/<book>/args.json`. Use its batches to assign exclusive section ownership. Record each stage with `record_stage.py`; it invokes no model or external account. Start a stage before its agent begins, retain the printed key, then publish the agent's result:
+
+```bash
+.venv/bin/python math-review/record_stage.py logs/<name>-math-journal.jsonl tmp/math-review/<book>/args.json b001 fix
+.venv/bin/python math-review/record_stage.py logs/<name>-math-journal.jsonl tmp/math-review/<book>/args.json b001 fix --key <printed-key> --result tmp/<result>.json
+```
+
+The result JSON contains nonnegative integer `display_equations_checked` and `inline_expressions_checked` counts, a boolean `katex_clean`, and `changes` and `unresolved` lists. Each change contains `file`, physical `page`, `kind`, `before` and `after`; each unresolved note contains `file`, physical `page` and `issue`. `kind` is one of `display`, `inline`, `table`, `missing-equation`, `not-decoded`, `equation-number`, `revert` or `other`. Use the planned section filename and its page bounds. Empty lists are valid. Run `check_math.js` on the owned files before setting `katex_clean`.
+
+Repeat for `verify` with a fresh adversarial agent, then `recheck` with a third distinct agent if the verifier made changes. Parallel writers share a locked journal. The recorder rejects malformed plans/results, wrong batch ownership, mismatched keys and duplicate results before appending. Start a new stage for retries; a newer fix invalidates prior verification, and a newer verify invalidates its prior recheck. These checks validate records, not source accuracy or reviewer independence.
+
+Report completion with `.venv/bin/python math-review/report.py <book> logs/<name>-math-journal.jsonl`, passing all journals oldest first when continuing a run. A failed or incomplete stage must remain visible in the report. Keep result JSON, source crops and snapshots under `tmp/`, and all journals and review evidence under `logs/`.
+
+#### Legacy workflow commands
+
+The following commands describe the previous Claude workflow and must not be executed under the native-agent policy above. In that workflow, pass the plan JSON content as the args object, not as a string:
 
 ```
 Workflow({scriptPath: "math-review/workflow.js", args: <contents of tmp/math-review/<book>/args.json>})
