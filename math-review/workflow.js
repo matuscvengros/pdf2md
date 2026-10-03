@@ -81,6 +81,8 @@ Notation: when you rewrite a formula, write compact standard LaTeX ("0.25", "x^{
 
 Do not change anything else. Non-math wording, OCR typos in plain prose, headings, image links, footnotes and paragraph order stay as they are. One exception: if OCR dropped a phrase that contains math (for example "proportional to x^1.5"), restore that phrase from the page image and record it as kind "other". Before restoring apparently missing math, search neighbouring section files read-only: reading-order errors can move a block under a later heading. If the math is exported elsewhere, report its location instead of duplicating it or editing another agent's file. If a whole paragraph, equation block or table from the source is genuinely missing, restore any equations it contains, and report the missing block in "unresolved" with an issue starting "MISSING BLOCK:" and its first few words. The converter is known to drop whole blocks on some pages. Make edits with the Edit tool, never by rewriting whole files.
 
+Use surrounding context or token boundaries for replacements. Inspect your diff for math inserted inside ordinary words or proper names, and restore accidental prose edits before finishing. When verifying a correction, check its surrounding prose as well as the formula.
+
 When finished, run: cd ${ROOT} && node math-review/check_math.js <each of your files>
 It parses every $$...$$ and $...$ with KaTeX. Fix every problem it reports in your files and re-run until it is clean.
 

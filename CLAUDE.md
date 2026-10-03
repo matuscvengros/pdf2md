@@ -83,6 +83,7 @@ The converter can also drop whole blocks of text on some pages, when Docling's r
 - Tables keep their structure. Only signs, exponents and symbols are corrected.
 - Transcription only. A printed typo or an inconsistent symbol stays as printed.
 - Nothing else changes: prose typos, headings, image links and paragraph order stay as they are. The exception is a dropped phrase that contains math, which is restored. Agents report missing non-math text instead of fixing it.
+- Use surrounding context or token boundaries for replacements. Inspect the diff for math inserted inside ordinary words or proper names, and restore any accidental prose edits before finishing. Verifiers also check the surrounding prose of each correction.
 - Before restoring missing math, search neighbouring section files read-only. Reading-order errors can place it under a later heading; report that location rather than adding a duplicate or editing another agent's file.
 - Every formula is checked on a 300 DPI zoom (`math-review/crop_page.py`). Subscripts are not legible at 150 DPI.
 - Every edited file must pass `math-review/check_math.js`, which parses each `$$...$$` and `$...$` with KaTeX.
