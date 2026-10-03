@@ -1,6 +1,6 @@
 # pdf2md
 
-Single-script tool that converts PDFs to Markdown via Docling. Output: `output/<name>/<name>.md`, per-chapter files in `output/<name>/chapters/`, and referenced images in `output/<name>/images/`.
+Single-script tool that converts PDFs to Markdown via Docling. Output contains heading-based section files directly in `output/<name>/chapters/` and referenced images in `output/<name>/images/`. Keep the original sequential prefix and heading-slug filenames, such as `01-introduction.md`. Do not produce combined book Markdown or create nested chapter directories.
 
 ## Layout
 
@@ -14,13 +14,15 @@ Single-script tool that converts PDFs to Markdown via Docling. Output: `output/<
 - No positional arg → process every `*.pdf` in `--input` (default `input/`).
 - One positional arg → that single PDF file (any path on disk).
 - More than one positional arg → not supported. If asked for multi-file, add a `nargs="+"` change consciously rather than auto-extending.
+- `--page-start` and `--page-end` select physical PDF pages, with 1-based inclusive bounds. Partial conversions use a separate output directory.
+- `--split-level` selects the heading level for section splitting, default H1. Do not add combined book Markdown, JSON, or page-chunk exports.
 
 ## Conventions
 
 - Python 3.10+, `pathlib` everywhere, no `os.path`.
 - Users run `./convert.sh`, not `python convert.py` directly — the wrapper delegates to `uv run`.
 - Batch must not abort on a single bad PDF — per-file `try/except` in `main`.
-- Skip files where `output/<name>/<name>.md` already exists unless `--force`.
+- Record successful exports in a persistent `logs/converted-<hash>.log` completion record. Skip only when that record and its chapter files exist, unless `--force`.
 - New behavior knobs go through `argparse`, not module constants.
 - Device selection: `--gpu`/`--cpu` are mutually exclusive and *both* opt-in. With neither, we don't set `accelerator_options` and Docling runs `device="auto"`, which **picks CUDA when a working NVIDIA GPU is present** — i.e. the absence of `--gpu` is not the same as CPU-only. Use `--cpu` to actually pin CPU. Don't change this default to CPU without a reason; auto matches Docling's own behavior.
 - Logs: `convert.py` redirects all Python logging and stderr into `logs/`. Errors (ERROR level + the per-PDF traceback we emit) land in `logs/err.log`; everything else (INFO/WARNING from docling/rapidocr/transformers, tqdm bars, raw stderr writes) lands in `logs/output.log`. Both files are truncated at the start of each run. The terminal only sees `print()` from `convert.py`. Don't add new noisy `print()`s; if you need to log, use `logging`.
@@ -30,5 +32,11 @@ Single-script tool that converts PDFs to Markdown via Docling. Output: `output/<
 - No tests (small script, not worth it).
 - No fancy logging — `print` is fine.
 - Don't add abstractions for hypothetical multi-format support; this is PDF-only.
-- Chapter splitting walks `DoclingDocument.iterate_items()` and re-invokes `save_as_markdown(from_element=..., to_element=...)` per section. Boundaries are `SectionHeaderItem` at `--split-level`. Don't fall back to regex on the rendered Markdown — we have the parsed tree, use it.
+- Preserve the original heading-based `split_into_chapters` algorithm. It walks `DoclingDocument.iterate_items()` and re-invokes `save_as_markdown(from_element=..., to_element=...)` per section. Boundaries are `SectionHeaderItem` at `--split-level`. Do not add chapter-number detection or group subsections into larger chapters. Don't fall back to regex on rendered Markdown; use the parsed tree.
 - The iteration args in `split_into_chapters` (`with_groups=True`, `traverse_pictures=True`, `included_content_layers={BODY}`) must stay in sync with docling's markdown serializer (`docling_core/transforms/serializer/common.py::_iterate_items`). Otherwise the indices we pass as `from_element`/`to_element` won't line up with the serializer's body slicing — chapters will silently contain wrong content.
+
+## Temporary files and logs
+
+- Put all temporary files created during any task in the repository's `tmp/` directory.
+- Put all log files created during any task in the repository's `logs/` directory.
+- Keep `tmp/` and `logs/` in `.gitignore`, and never commit their contents.

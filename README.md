@@ -4,6 +4,12 @@ Convert PDFs to Markdown using [Docling](https://github.com/DS4SD/docling).
 
 Requires [`uv`](https://github.com/astral-sh/uv) — it manages the virtualenv and dependencies automatically.
 
+The GPU sample below was run with Python 3.12 and the locked dependencies. To install that environment:
+
+```bash
+uv sync --python 3.12 --locked
+```
+
 ## Usage
 
 Convert every PDF in `input/`:
@@ -18,7 +24,24 @@ Convert a single PDF anywhere on disk:
 ./convert.sh path/to/file.pdf
 ```
 
-Output goes to `output/<pdf-name>/<pdf-name>.md`, with images in `output/<pdf-name>/images/` and per-chapter files (split on top-level headings) in `output/<pdf-name>/chapters/`. Already-converted PDFs are skipped unless `--force` is passed.
+Output contains section Markdown files directly in `output/<pdf-name>/chapters/` and their referenced images in `output/<pdf-name>/images/`. Files keep the original sequential prefix and heading slug, such as `01-introduction.md`. The script does not produce a combined book Markdown file.
+
+The splitter keeps the original heading-based behavior. Each detected heading at `--split-level` starts a file that runs to the next heading at that level. The default is H1. OCR and heading detection determine these boundaries, so a book's title pages and subsections may also become separate files.
+
+Successful exports record completion in `logs/converted-<hash>.log`. A later run skips that PDF only when the completion record and its chapter files still exist. Use `--force` to regenerate it.
+
+### GPU page-range sample
+
+Convert physical PDF pages 1 through 20 into heading-based section files:
+
+```bash
+./convert.sh input/book.pdf \
+  --gpu --ocr-language english --page-start 1 --page-end 20
+```
+
+The sample directory is `output/book-pages-0001-0020/`. Its `chapters/` directory contains one file per detected H1 section. All files sit directly in that directory. Image paths are relative to each Markdown file.
+
+These page numbers include the cover and front matter and may differ from printed book page numbers. Page ranges use Docling's `page_range` argument, so the remaining pages are not processed. Range output is separate from full-book output. Use `--force` to regenerate an existing sample and `--no-formulas` to skip formula enrichment for a faster run.
 
 ### Arguments
 
@@ -34,16 +57,20 @@ file             Single PDF to convert. If omitted, processes every PDF in --inp
 --scale FLOAT     Image scale factor (default: 2.0)
 --no-formulas     Disable formula enrichment (faster)
 --force           Reconvert PDFs even if output exists
---no-split        Skip splitting into per-chapter files
---split-level N   Heading level to split chapters on (default: 1)
+--split-level N   Heading level to split sections on (default: 1)
+--page-start N    First physical PDF page, 1-based inclusive (default: 1)
+--page-end N      Last physical PDF page, 1-based inclusive (default: final page)
+--ocr-language L  Select english or chinese RapidOCR models
 --gpu             Force CUDA GPU
 --cpu             Force CPU
 ```
 
 ### Device selection
 
-With neither `--gpu` nor `--cpu`, Docling runs on `device="auto"`: it picks **CUDA when a working NVIDIA GPU is present** and falls back to CPU otherwise. So on a GPU box, plain `./convert.sh` will use the GPU even though there's no `--gpu` flag — this is Docling's default, not a bug. Pass `--cpu` to actually pin CPU (e.g. when `auto` is picking up a wedged GPU).
+With neither `--gpu` nor `--cpu`, Docling uses `device="auto"` and chooses CUDA for supported models when available. OCR can still use CPU depending on its backend. `--gpu` requires usable CUDA-enabled PyTorch and selects the PyTorch RapidOCR backend so OCR also uses CUDA. It fails explicitly if CUDA is unavailable. `--cpu` pins CPU. For this English scan, pass `--ocr-language english` to select the English OCR models.
 
 ### Logs
 
-Errors and tracebacks go to `logs/err.log`; everything else (info/warning chatter from docling, rapidocr, transformers, tqdm) goes to `logs/output.log`. Both files are truncated at the start of each run. The terminal only shows high-level status (`Converting ...`, `wrote ...`, `failed: ...`).
+Errors and tracebacks go to `logs/err.log`; everything else (info/warning chatter from docling, rapidocr, transformers, tqdm) goes to `logs/output.log`. Both files are truncated at the start of each run. Completion records in `logs/converted-<hash>.log` persist between runs. The terminal only shows high-level status (`Converting ...`, `wrote ...`, `failed: ...`).
+
+Batch conversion continues after a failed PDF and exits with a nonzero status if any conversion failed.

@@ -73,6 +73,10 @@ ipython_config.py
 
 # Logs
 *.log
+logs/
+
+# Temporary conversion and verification files
+tmp/
 
 # Don't track PDFs dropped into input/
 input/*

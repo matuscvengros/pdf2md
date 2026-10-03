@@ -1,5 +1,7 @@
 import argparse
+import hashlib
 import logging
+import math
 import re
 import sys
 import traceback
@@ -31,8 +33,8 @@ _root.addHandler(_out_handler)
 sys.stderr = open(_OUT_LOG, "a", buffering=1)
 
 from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
-from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.datamodel.base_models import ConversionStatus, InputFormat
+from docling.datamodel.pipeline_options import PdfPipelineOptions, RapidOcrOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling_core.types.doc import ImageRefMode
 from docling_core.types.doc.document import (
@@ -43,7 +45,11 @@ from docling_core.types.doc.document import (
 
 
 def build_converter(
-    images_scale: float, formulas: bool, gpu: bool, cpu: bool
+    images_scale: float,
+    formulas: bool,
+    gpu: bool,
+    cpu: bool,
+    ocr_language: str | None = None,
 ) -> DocumentConverter:
     opts = PdfPipelineOptions()
     opts.generate_picture_images = True
@@ -53,9 +59,31 @@ def build_converter(
     # which picks CUDA when a working NVIDIA GPU is present and CPU otherwise.
     # --gpu forces CUDA; --cpu forces CPU.
     if gpu:
+        import torch
+
+        if not torch.cuda.is_available():
+            raise RuntimeError("--gpu requires CUDA-enabled PyTorch and a usable NVIDIA GPU")
+        try:
+            torch.ones(1, device="cuda").sum().item()
+        except RuntimeError as exc:
+            raise RuntimeError(f"--gpu CUDA check failed: {exc}") from exc
         opts.accelerator_options = AcceleratorOptions(device=AcceleratorDevice.CUDA)
     elif cpu:
         opts.accelerator_options = AcceleratorOptions(device=AcceleratorDevice.CPU)
+    if gpu or ocr_language is not None:
+        from rapidocr import LangDet, LangRec
+
+        language = ocr_language or "chinese"
+        # Set the engine's language too; lang alone does not select its models.
+        # The default ONNX runtime can run OCR on CPU despite CUDA acceleration.
+        opts.ocr_options = RapidOcrOptions(
+            backend="torch",
+            lang=[language],
+            rapidocr_params={
+                "Det.lang_type": LangDet.EN if language == "english" else LangDet.CH,
+                "Rec.lang_type": LangRec.EN if language == "english" else LangRec.CH,
+            },
+        )
     return DocumentConverter(
         format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)}
     )
@@ -96,7 +124,7 @@ def split_into_chapters(
         fname = f"{written:02d}-{slugify(text)}.md"
         doc.save_as_markdown(
             chapters_dir / fname,
-            artifacts_dir=images_dir,
+            artifacts_dir=Path("..") / images_dir.name,
             image_mode=ImageRefMode.REFERENCED,
             from_element=start,
             to_element=end,
@@ -114,56 +142,103 @@ def split_into_chapters(
     return written
 
 
+
 def convert_one(
     converter: DocumentConverter,
     pdf: Path,
     output_dir: Path,
     force: bool,
-    split: bool,
     split_level: int,
+    page_start: int = 1,
+    page_end: int | None = None,
 ) -> None:
     name = pdf.stem
-    out_dir = output_dir / name
-    md_path = out_dir / f"{name}.md"
-    if md_path.exists() and not force:
-        print(f"Skipping {pdf.name} (already converted)")
-        return
+    suffix = ""
+    if page_start != 1 or page_end is not None:
+        end_tag = f"{page_end:04d}" if page_end is not None else "end"
+        suffix = f"-pages-{page_start:04d}-{end_tag}"
+    out_dir = output_dir / f"{name}{suffix}"
+    chapters_dir = out_dir / "chapters"
+    conversion_id = hashlib.sha256(
+        f"{out_dir.resolve()}|heading-sections|H{split_level}".encode()
+    ).hexdigest()[:16]
+    completion_log = LOGS_DIR / f"converted-{conversion_id}.log"
+    if completion_log.is_file() and not force:
+        outputs = completion_log.read_text(encoding="utf-8").splitlines()
+        if outputs and all((out_dir / path).is_file() for path in outputs):
+            print(f"Skipping {pdf.name} (chapters already converted)")
+            return
 
     out_dir.mkdir(parents=True, exist_ok=True)
     images_dir = out_dir / "images"
 
     print(f"Converting {pdf.name} ...")
-    result = converter.convert(pdf)
-    result.document.save_as_markdown(
-        md_path,
-        image_mode=ImageRefMode.REFERENCED,
-        artifacts_dir=images_dir,
-    )
-    print(f"  wrote {md_path}")
+    result = converter.convert(pdf, page_range=(page_start, page_end or sys.maxsize))
+    if result.status != ConversionStatus.SUCCESS:
+        raise RuntimeError(f"Docling conversion did not fully succeed: {result.status.value}")
+    if page_end is not None and page_end > result.input.page_count:
+        raise ValueError(f"--page-end {page_end} exceeds the PDF's {result.input.page_count} pages")
+    completion_log.unlink(missing_ok=True)
+    n = split_into_chapters(result.document, chapters_dir, images_dir, split_level)
 
-    if split:
-        chapters_dir = out_dir / "chapters"
-        n = split_into_chapters(result.document, chapters_dir, images_dir, split_level)
-        if n:
-            print(f"  split into {n} chapter(s) at H{split_level} in {chapters_dir}")
-        else:
-            print(f"  no H{split_level} headings found; nothing to split")
+    # Docling saves picture artifacts before applying element slicing. Keep only
+    # images referenced by the exported chapters, including after reconversion.
+    chapter_paths = sorted(chapters_dir.glob("*.md"))
+    referenced_images = {
+        filename
+        for path in chapter_paths
+        for filename in re.findall(
+            r"!\[[^\]]*\]\(\.\./images/([^)]+)\)",
+            path.read_text(encoding="utf-8"),
+        )
+    }
+    for image in images_dir.glob("image_*.png"):
+        if image.name not in referenced_images:
+            image.unlink()
+
+    # Remove artifacts from the previous combined/chunked output format.
+    for legacy in (out_dir / f"{name}.md", out_dir / f"{name}.json"):
+        legacy.unlink(missing_ok=True)
+    chunks_dir = out_dir / "chunks"
+    if chunks_dir.is_dir():
+        for legacy in chunks_dir.glob("pages-*.md"):
+            legacy.unlink()
+        if not any(chunks_dir.iterdir()):
+            chunks_dir.rmdir()
+
+    outputs = chapter_paths + sorted(images_dir.glob("image_*.png"))
+    completion_log.write_text(
+        "\n".join(path.relative_to(out_dir).as_posix() for path in outputs) + "\n",
+        encoding="utf-8",
+    )
+    print(f"  wrote {n} chapter(s) in {chapters_dir}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Convert PDFs to Markdown using Docling.")
+    parser = argparse.ArgumentParser(description="Convert PDFs to heading-based Markdown sections using Docling.")
     parser.add_argument("file", nargs="?", type=Path, help="Single PDF to convert. If omitted, processes every PDF in --input.")
     parser.add_argument("--input", type=Path, default=Path("input"), help="Input directory (default: input)")
     parser.add_argument("--output", type=Path, default=Path("output"), help="Output directory (default: output)")
     parser.add_argument("--scale", type=float, default=2.0, help="Image scale factor (default: 2.0)")
     parser.add_argument("--no-formulas", action="store_true", help="Disable formula enrichment (faster)")
     parser.add_argument("--force", action="store_true", help="Reconvert PDFs even if output exists")
-    parser.add_argument("--no-split", action="store_true", help="Skip splitting into per-chapter files")
     parser.add_argument("--split-level", type=int, default=1, help="Heading level to split chapters on (default: 1)")
+    parser.add_argument("--page-start", type=int, default=1, help="First physical PDF page, 1-based inclusive (default: 1)")
+    parser.add_argument("--page-end", type=int, help="Last physical PDF page, 1-based inclusive (default: final page)")
+    parser.add_argument("--ocr-language", choices=("english", "chinese"), help="Select RapidOCR models for this language (default: Docling OCR selection)")
     device = parser.add_mutually_exclusive_group()
     device.add_argument("--gpu", action="store_true", help="Force CUDA GPU. Default leaves Docling on device='auto', which picks CUDA when a working NVIDIA GPU is present and CPU otherwise.")
     device.add_argument("--cpu", action="store_true", help="Force CPU, even if a usable GPU is present (use this if 'auto' is picking up a wedged GPU).")
     args = parser.parse_args()
+
+    if args.page_start < 1:
+        parser.error("--page-start must be positive")
+    if args.page_end is not None and args.page_end < args.page_start:
+        parser.error("--page-end must be at least --page-start")
+    if not math.isfinite(args.scale) or args.scale <= 0:
+        parser.error("--scale must be positive and finite")
+    if not 1 <= args.split_level <= 6:
+        parser.error("--split-level must be between 1 and 6")
 
     if args.file is not None:
         if not args.file.is_file():
@@ -175,14 +250,20 @@ def main() -> None:
             print(f"No PDFs found in {args.input}/")
             return
 
-    converter = build_converter(
-        images_scale=args.scale,
-        formulas=not args.no_formulas,
-        gpu=args.gpu,
-        cpu=args.cpu,
-    )
+    try:
+        converter = build_converter(
+            images_scale=args.scale,
+            formulas=not args.no_formulas,
+            gpu=args.gpu,
+            cpu=args.cpu,
+            ocr_language=args.ocr_language,
+        )
+    except (ImportError, RuntimeError) as exc:
+        print(f"Cannot initialize converter: {exc} (see {_OUT_LOG})")
+        parser.error(str(exc))
     device_tag = " (GPU)" if args.gpu else " (CPU)" if args.cpu else " (auto)"
     print(f"Found {len(pdfs)} PDF(s){device_tag}")
+    failed = 0
     for pdf in pdfs:
         try:
             convert_one(
@@ -190,14 +271,18 @@ def main() -> None:
                 pdf,
                 args.output,
                 args.force,
-                split=not args.no_split,
                 split_level=args.split_level,
+                page_start=args.page_start,
+                page_end=args.page_end,
             )
         except Exception as e:
+            failed += 1
             logging.getLogger("pdf2md").error(
                 "failed: %s\n%s", pdf.name, traceback.format_exc()
             )
             print(f"  failed: {pdf.name}: {e} (see {_ERR_LOG})")
+    if failed:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
