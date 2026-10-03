@@ -52,6 +52,7 @@ from docling.datamodel.accelerator_options import AcceleratorDevice, Accelerator
 from docling.datamodel.base_models import ConversionStatus, InputFormat
 from docling.datamodel.pipeline_options import PdfPipelineOptions, RapidOcrOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.models.stages.reading_order import readingorder_model
 from docling.utils.locks import pypdfium2_lock
 from docling_core.types.doc import BoundingBox, CoordOrigin, ImageRefMode
 from docling_core.types.doc.document import (
@@ -59,6 +60,7 @@ from docling_core.types.doc.document import (
     DoclingDocument,
     SectionHeaderItem,
 )
+from docling_ibm_models.reading_order.reading_order_rb import PageElement, ReadingOrderPredictor
 from PIL import Image
 
 
@@ -92,6 +94,7 @@ class SafeCropPageBackend(DoclingParsePageBackend):
 class SafeCropDocumentBackend(DoclingParseDocumentBackend):
     # Same as DoclingParseDocumentBackend.load_page, but returns SafeCropPageBackend.
     def load_page(self, page_no: int, create_words: bool = True, create_textlines: bool = True) -> SafeCropPageBackend:
+        assert self.dp_doc is not None
         with pypdfium2_lock:
             ppage = self._pdoc[page_no]
         return SafeCropPageBackend(
@@ -103,13 +106,36 @@ class SafeCropDocumentBackend(DoclingParseDocumentBackend):
         )
 
 
+class SafeReadingOrderPredictor(ReadingOrderPredictor):
+    def _predict_page(self, page_elements: list[PageElement]) -> list[PageElement]:
+        ordered = super()._predict_page(page_elements)
+        kept = {element.cid for element in ordered}
+        missing = [element for element in page_elements if element.cid not in kept]
+        if not missing:
+            return ordered
+        # A cycle in Docling's reading-order graph can leave body elements
+        # unreachable. Its geometric comparator also orders graph heads and
+        # children; use it for this page group rather than dropping content.
+        logging.getLogger("pdf2md").warning(
+            "reading-order fallback page %d: recovered %d omitted element(s); "
+            "using geometric order, review this page against the PDF",
+            page_elements[0].page_no,
+            len(missing),
+        )
+        return sorted(page_elements)
+
+
 def build_converter(
     images_scale: float,
     formulas: bool,
     gpu: bool,
     cpu: bool,
     ocr_language: str | None = None,
+    force_ocr: bool = False,
 ) -> DocumentConverter:
+    # ReadingOrderModel constructs this predictor when the PDF pipeline starts.
+    # Keep the adapter in sync with Docling's private _predict_page API.
+    readingorder_model.ReadingOrderPredictor = SafeReadingOrderPredictor
     opts = PdfPipelineOptions()
     opts.generate_picture_images = True
     opts.images_scale = images_scale
@@ -143,6 +169,7 @@ def build_converter(
                 "Rec.lang_type": LangRec.EN if language == "english" else LangRec.CH,
             },
         )
+    opts.ocr_options.force_full_page_ocr = force_ocr
     return DocumentConverter(
         format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts, backend=SafeCropDocumentBackend)}
     )
@@ -296,6 +323,7 @@ def main() -> None:
     parser.add_argument("--page-start", type=int, default=1, help="First physical PDF page, 1-based inclusive (default: 1)")
     parser.add_argument("--page-end", type=int, help="Last physical PDF page, 1-based inclusive (default: final page)")
     parser.add_argument("--ocr-language", choices=("english", "chinese"), help="Select RapidOCR models for this language (default: Docling OCR selection)")
+    parser.add_argument("--force-ocr", action="store_true", help="OCR entire pages instead of using the PDF's embedded text layer (use for damaged text layers).")
     device = parser.add_mutually_exclusive_group()
     device.add_argument("--gpu", action="store_true", help="Force CUDA GPU. Default leaves Docling on device='auto', which picks CUDA when a working NVIDIA GPU is present and CPU otherwise.")
     device.add_argument("--cpu", action="store_true", help="Force CPU, even if a usable GPU is present (use this if 'auto' is picking up a wedged GPU).")
@@ -327,6 +355,7 @@ def main() -> None:
             gpu=args.gpu,
             cpu=args.cpu,
             ocr_language=args.ocr_language,
+            force_ocr=args.force_ocr,
         )
     except (ImportError, RuntimeError) as exc:
         print(f"Cannot initialize converter: {exc} (see {_OUT_LOG})")
